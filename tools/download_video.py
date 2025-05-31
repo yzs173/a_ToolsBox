@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 import sys
 import you_get
 TOOL_NAME = "B站视频下载器"
-DESCRIPTION = "下载B站视频（需要配置环境，具体问二平）"
+DESCRIPTION = "下载B站视频（需要配置环境）"
 class DownloadThread(QThread):
     progress_signal = pyqtSignal(int, int, int)
     log_signal = pyqtSignal(str)
