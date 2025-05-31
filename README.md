@@ -1,4 +1,4 @@
-# 🧰 工具箱应用 - PyQt6多功能工具集
+# 🧰 工具箱应用 - 基于PyQt6开发的多功能工具集
 
 ![Python版本](https://img.shields.io/badge/python-3.8%2B-blue)
 ![PyQt6版本](https://img.shields.io/badge/PyQt6-6.0-green)
@@ -16,8 +16,8 @@
 ### 🛠️前置要求
 - Python 3.8+
 - PyQt6
-- FFmpeg (视频转换功能需要)
-- you-get (视频下载功能需要)
+- FFmpeg (视频转换功能需要，需加到path环境中)
+- you-get (视频下载功能需要，需加到path环境中)
 
 ### 🚀使用说明
 
