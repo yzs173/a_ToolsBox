@@ -70,7 +70,11 @@ class DuplicateFileCleaner(QWidget):
         self.include_subfolders_checkbox = QCheckBox("包含子文件夹中的文件")
         self.include_subfolders_checkbox.setChecked(True)
         
+        self.prefer_a_checkbox = QCheckBox("优先保留文件夹A中的文件（当文件名重复时）")
+        self.prefer_a_checkbox.setChecked(True)
+        
         options_layout.addWidget(self.include_subfolders_checkbox)
+        options_layout.addWidget(self.prefer_a_checkbox)
         options_group.setLayout(options_layout)
 
         # 进度条
@@ -149,7 +153,8 @@ class DuplicateFileCleaner(QWidget):
                     all_files.append({
                         'name': file_name,
                         'full_path': file_path,
-                        'relative_path': relative_path
+                        'relative_path': relative_path,
+                        'source_folder': folder_path
                     })
         else:
             # 只获取根目录文件
@@ -159,7 +164,8 @@ class DuplicateFileCleaner(QWidget):
                     all_files.append({
                         'name': file_name,
                         'full_path': file_path,
-                        'relative_path': file_name
+                        'relative_path': file_name,
+                        'source_folder': folder_path
                     })
         
         return all_files
@@ -195,37 +201,36 @@ class DuplicateFileCleaner(QWidget):
 
     def _compare_by_name(self):
         """通过文件名比较重复文件"""
-        # 构建文件名到文件列表的映射
-        name_to_files_a = defaultdict(list)
-        name_to_files_b = defaultdict(list)
+        # 构建相对路径到文件列表的映射
+        path_to_files_a = defaultdict(list)
+        path_to_files_b = defaultdict(list)
         
         for file_info in self.all_files_a:
-            name_to_files_a[file_info['name']].append(file_info)
+            path_to_files_a[file_info['relative_path']].append(file_info)
             
         for file_info in self.all_files_b:
-            name_to_files_b[file_info['name']].append(file_info)
+            path_to_files_b[file_info['relative_path']].append(file_info)
         
-        # 找出重复的文件名
-        common_names = set(name_to_files_a.keys()) & set(name_to_files_b.keys())
+        # 找出重复的相对路径
+        common_paths = set(path_to_files_a.keys()) & set(path_to_files_b.keys())
         
-        for name in common_names:
-            # 对于每个重复的文件名，记录所有匹配的文件对
-            files_a = name_to_files_a[name]
-            files_b = name_to_files_b[name]
+        for path in common_paths:
+            # 对于每个重复的相对路径，记录所有匹配的文件对
+            files_a = path_to_files_a[path]
+            files_b = path_to_files_b[path]
             
             # 记录所有重复文件对
             for file_a in files_a:
                 for file_b in files_b:
                     self.duplicate_files.append({
-                        'name': name,
+                        'name': file_a['name'],
                         'path_a': file_a['full_path'],
                         'path_b': file_b['full_path'],
-                        'relative_a': file_a['relative_path'],
-                        'relative_b': file_b['relative_path'],
+                        'relative_path': path,
                         'duplicate_type': '文件名重复'
                     })
                     
-                    display_text = f"📄 {name}\n  A: {file_a['relative_path']}\n  B: {file_b['relative_path']}"
+                    display_text = f"📄 {file_a['name']}\n  路径: {path}"
                     self.duplicate_list_widget.addItem(display_text)
 
         # 更新统计信息
@@ -234,17 +239,17 @@ class DuplicateFileCleaner(QWidget):
     def _update_stats(self, count_a, count_b, duplicate_count):
         """更新统计信息"""
         # 计算不重复的文件数量
-        duplicate_names = set()
+        duplicate_paths = set()
         for dup in self.duplicate_files:
-            duplicate_names.add(dup['name'])
+            duplicate_paths.add(dup['relative_path'])
         
         # 计算不重复的文件数量
-        unique_files_a = [f for f in self.all_files_a if f['name'] not in duplicate_names]
-        unique_files_b = [f for f in self.all_files_b if f['name'] not in duplicate_names]
+        unique_files_a = [f for f in self.all_files_a if f['relative_path'] not in duplicate_paths]
+        unique_files_b = [f for f in self.all_files_b if f['relative_path'] not in duplicate_paths]
         total_unique = len(unique_files_a) + len(unique_files_b)
         
         if count_a + count_b > 0:
-            deduplication_rate = len(duplicate_names) / (count_a + count_b) * 100
+            deduplication_rate = len(duplicate_paths) / (count_a + count_b) * 100
         else:
             deduplication_rate = 0
             
@@ -252,9 +257,9 @@ class DuplicateFileCleaner(QWidget):
         <b>统计信息:</b><br>
         文件夹A: {count_a} 个文件<br>
         文件夹B: {count_b} 个文件<br>
-        重复文件: {len(duplicate_names)} 个<br>
+        重复文件: {len(duplicate_paths)} 个<br>
         唯一文件: {total_unique} 个<br>
-        去重率: {deduplication_rate:.1f}% (删除 {len(duplicate_names)} 个重复文件)
+        去重率: {deduplication_rate:.1f}% (删除 {len(duplicate_paths)} 个重复文件)
         """
         self.stats_label.setText(stats_text)
 
@@ -275,42 +280,56 @@ class DuplicateFileCleaner(QWidget):
                 shutil.rmtree(output_dir)
             os.makedirs(output_dir)
 
-            # 获取所有重复文件的名称
-            duplicate_names = set()
+            # 获取所有重复文件的相对路径
+            duplicate_paths = set()
             for dup in self.duplicate_files:
-                duplicate_names.add(dup['name'])
+                duplicate_paths.add(dup['relative_path'])
 
-            # 复制文件夹A中的不重复文件（保持目录结构）
+            # 合并所有文件并创建文件夹结构映射
+            all_files = self.all_files_a + self.all_files_b
+            files_by_path = {}
+            prefer_a = self.prefer_a_checkbox.isChecked()
+            
+            # 按照Windows复制逻辑处理文件
+            for file_info in all_files:
+                relative_path = file_info['relative_path']
+                
+                # 如果这个路径已经有文件了，说明有重复
+                if relative_path in files_by_path:
+                    # 根据用户选择决定保留哪个文件
+                    if prefer_a and file_info['source_folder'] == self.folder_a_path:
+                        # 优先保留A文件夹的文件
+                        files_by_path[relative_path] = file_info
+                    elif not prefer_a and file_info['source_folder'] == self.folder_b_path:
+                        # 优先保留B文件夹的文件
+                        files_by_path[relative_path] = file_info
+                    # 如果优先选择与当前文件来源相同，则保持不变
+                else:
+                    # 这个路径还没有文件，直接添加
+                    files_by_path[relative_path] = file_info
+
+            # 复制所有不重复的文件，保持文件夹结构
             files_copied = 0
             
-            for file_info in self.all_files_a:
-                if file_info['name'] not in duplicate_names:
-                    src_path = file_info['full_path']
-                    dst_path = os.path.join(output_dir, "文件夹A", file_info['relative_path'])
+            for relative_path, file_info in files_by_path.items():
+                # 跳过重复的文件（根据用户选择已经处理过了）
+                if relative_path in duplicate_paths:
+                    continue
                     
-                    # 确保目标目录存在
-                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-                    
-                    shutil.copy2(src_path, dst_path)
-                    files_copied += 1
-
-            # 复制文件夹B中的不重复文件（保持目录结构）
-            for file_info in self.all_files_b:
-                if file_info['name'] not in duplicate_names:
-                    src_path = file_info['full_path']
-                    dst_path = os.path.join(output_dir, "文件夹B", file_info['relative_path'])
-                    
-                    # 确保目标目录存在
-                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-                    
-                    shutil.copy2(src_path, dst_path)
-                    files_copied += 1
+                src_path = file_info['full_path']
+                dst_path = os.path.join(output_dir, relative_path)
+                
+                # 确保目标目录存在
+                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                
+                shutil.copy2(src_path, dst_path)
+                files_copied += 1
 
             QMessageBox.information(self, "成功", 
                 f"去重文件夹已生成！\n"
                 f"位置: {output_dir}\n"
                 f"共保存 {files_copied} 个不重复文件\n"
-                f"已删除 {len(duplicate_names)} 个重复文件")
+                f"已删除 {len(duplicate_paths)} 个重复文件")
 
         except Exception as e:
             QMessageBox.critical(self, "错误", f"生成去重文件夹失败: {str(e)}")
